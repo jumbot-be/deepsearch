@@ -3,6 +3,7 @@ import csv
 import os
 import re
 import html
+import urllib.parse
 from playwright.async_api import async_playwright
 
 async def accept_cookies(page):
@@ -165,7 +166,19 @@ async def main():
 
         table_rows = ""
         for track in all_tracks:
-            link_html = f"<a href='{html.escape(track['lien'])}' class='btn' target='_blank'>Écouter</a>" if track['lien'] else ""
+            if track['lien']:
+                link_html = f"<a href='{html.escape(track['lien'])}' class='btn' target='_blank'>Écouter</a>"
+            else:
+                yt_query = urllib.parse.quote(f"{track['artiste']} {track['titre']} youtube")
+                sc_query = urllib.parse.quote(f"{track['artiste']} {track['titre']} soundcloud")
+                bc_query = urllib.parse.quote(f"{track['artiste']} {track['titre']} bandcamp")
+
+                link_html = f"""<div class="search-container">
+                    <a href="https://www.google.com/search?q={yt_query}" class="btn btn-search" target="_blank">YouTube</a>
+                    <a href="https://www.google.com/search?q={sc_query}" class="btn btn-search" target="_blank">SoundCloud</a>
+                    <a href="https://www.google.com/search?q={bc_query}" class="btn btn-search" target="_blank">Bandcamp</a>
+                </div>"""
+
             table_rows += f"<tr data-platform='{html.escape(track['plateforme'])}'><td>{html.escape(track['épisode'])}</td><td>{html.escape(track['artiste'])}</td><td>{html.escape(track['titre'])}</td><td>{html.escape(track['plateforme'])}</td><td>{link_html}</td></tr>\n"
 
         html_content = f"""<!DOCTYPE html>
@@ -184,8 +197,11 @@ async def main():
         th {{ background-color: #e2007a; color: white; text-transform: uppercase; font-size: 0.85em; letter-spacing: 0.05em; }}
         tr:nth-child(even) {{ background-color: #fcfcfc; }}
         tr:hover {{ background-color: #fff0f7; }}
-        .btn {{ display: inline-block; padding: 6px 16px; background: #e2007a; color: white; border-radius: 20px; text-decoration: none; font-size: 0.85em; font-weight: 600; transition: background 0.2s; cursor: pointer; border: none; }}
+        .btn {{ display: inline-block; padding: 6px 16px; background: #e2007a; color: white; border-radius: 20px; text-decoration: none; font-size: 0.85em; font-weight: 600; transition: background 0.2s; cursor: pointer; border: none; white-space: nowrap; }}
         .btn:hover {{ background: #c10068; }}
+        .btn-search {{ background: #555; font-size: 0.75em; padding: 4px 10px; margin-right: 4px; }}
+        .btn-search:hover {{ background: #333; }}
+        .search-container {{ display: flex; flex-wrap: wrap; gap: 4px; }}
         .sort-btn {{ cursor: pointer; user-select: none; margin-left: 5px; opacity: 0.6; transition: opacity 0.2s; }}
         .sort-btn:hover {{ opacity: 1; color: #fff; }}
         .sort-btn.active {{ opacity: 1; font-weight: bold; }}
