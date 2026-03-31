@@ -93,7 +93,8 @@ async def scrape_episode(page, url):
                         tracks_data.append({"épisode": episode_title, "artiste": artist, "titre": title, "plateforme": "Spotify", "lien": spotify.group(1)})
                         added_any = True
                     if deezer and deezer.group(1) != "void 0":
-                        tracks_data.append({"épisode": episode_title, "artiste": artist, "titre": title, "plateforme": "Deezer", "lien": deezer.group(1)})                        added_any = True
+                        tracks_data.append({"épisode": episode_title, "artiste": artist, "titre": title, "plateforme": "Deezer", "lien": deezer.group(1)})
+                        added_any = True
                     if apple and apple.group(1) != "void 0":
                         tracks_data.append({"épisode": episode_title, "artiste": artist, "titre": title, "plateforme": "Apple Music", "lien": apple.group(1)})
                         added_any = True
@@ -161,104 +162,168 @@ async def main():
 
         # Save to HTML
         html_file = 'index.html'
-        with open(html_file, 'w', encoding='utf-8') as f:
-            f.write("<!DOCTYPE html>\n<html lang='fr'>\n<head>\n<meta charset='UTF-8'>\n")
-            f.write("<meta name='viewport' content='width=device-width, initial-scale=1.0'>\n")
-            f.write("<title>Laurent Garnier - [DEEP]Search Scraped Data</title>\n")
-            f.write("<style>\n")
-            f.write("body { font-family: system-ui, -apple-system, sans-serif; margin: 20px; background: #f4f4f9; color: #333; }\n")
-            f.write("h1 { color: #e2007a; border-bottom: 2px solid #e2007a; padding-bottom: 10px; }\n")
-            f.write(".controls { margin-bottom: 20px; display: flex; align-items: center; gap: 10px; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }\n")
-            f.write("select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; }\n")
-            f.write("table { border-collapse: collapse; width: 100%; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-top: 20px; }\n")
-            f.write("th, td { border: 1px solid #eee; padding: 12px; text-align: left; }\n")
-            f.write("th { background-color: #e2007a; color: white; text-transform: uppercase; font-size: 0.85em; letter-spacing: 0.05em; }\n")
-            f.write("tr:nth-child(even) { background-color: #fcfcfc; }\n")
-            f.write("tr:hover { background-color: #fff0f7; }\n")
-            f.write(".btn { display: inline-block; padding: 6px 16px; background: #e2007a; color: white; border-radius: 20px; text-decoration: none; font-size: 0.85em; font-weight: 600; transition: background 0.2s; cursor: pointer; border: none; }\n")
-            f.write(".btn:hover { background: #c10068; }\n")
-            f.write("</style>\n")
-            f.write("<script>\n")
-            f.write("function updateTable() {\n")
-            f.write("  const selectedPlatform = document.getElementById('platformFilter').value;\n")
-            f.write("  const hideDuplicates = document.getElementById('hideDuplicates').checked;\n")
-            f.write("  const rows = document.querySelectorAll('tbody tr');\n")
-            f.write("  const seen = new Set();\n")
-            f.write("  let visibleCount = 0;\n")
-            f.write("\\n")
-            f.write("  rows.forEach(row => {\n")
-            f.write("    const platform = row.getAttribute('data-platform');\n")
-            f.write("    const artist = row.cells[1].innerText.trim().toLowerCase();\n")
-            f.write("    const title = row.cells[2].innerText.trim().toLowerCase();\n")
-            f.write("    const key = artist + '|' + title;\n")
-            f.write("\\n")
-            f.write("    let show = (selectedPlatform === 'all' || platform === selectedPlatform);\n")
-            f.write("\\n")
-            f.write("    if (show && hideDuplicates) {\n")
-            f.write("      if (seen.has(key)) {\n")
-            f.write("        show = false;\n")
-            f.write("      } else {\n")
-            f.write("        seen.add(key);\n")
-            f.write("      }\n")
-            f.write("    }\n")
-            f.write("\\n")
-            f.write("    if (show) {\n")
-            f.write("      row.style.display = '';\n")
-            f.write("      visibleCount++;\n")
-            f.write("    } else {\n")
-            f.write("      row.style.display = 'none';\n")
-            f.write("    }\n")
-            f.write("  });\n")
-            f.write("  document.getElementById('totalCount').innerText = visibleCount;\n")
-            f.write("}\n")
-            f.write("\\n")
-            f.write("function exportToCSV() {\n")
-            f.write("  const rows = document.querySelectorAll('table tr');\n")
-            f.write("  let csv = [];\n")
-            f.write("  rows.forEach(row => {\n")
-            f.write("    if (row.style.display !== 'none') {\n")
-            f.write("      const cols = Array.from(row.cells).map((cell, index) => {\n")
-            f.write("        let text = cell.innerText;\n")
-            f.write("        if (index === 4) { // Link column\n")
-            f.write("          const a = cell.querySelector('a');\n")
-            f.write("          text = a ? a.href : '';\n")
-            f.write("        }\n")
-            f.write("        return '\"' + text.replace(/\"/g, '\"\"') + '\"';\n")
-            f.write("      });\n")
-            f.write("      csv.push(cols.join(','));\n")
-            f.write("    }\n")
-            f.write("  });\n")
-            f.write("  const csvString = csv.join('\\\\n');\n")
-            f.write("  const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });\n")
-            f.write("  const link = document.createElement('a');\n")
-            f.write("  link.href = URL.createObjectURL(blob);\n")
-            f.write("  link.download = 'tracks_export.csv';\n")
-            f.write("  link.click();\n")
-            f.write("}\n")
-            f.write("</script>\n")
-            f.write("</head>\n<body>\n")
-            f.write("<h1>Laurent Garnier - [DEEP]Search</h1>\n")
-            f.write("<div class='controls'>\n")
-            f.write("  <label for='platformFilter'>Filtrer par plateforme :</label>\n")
-            f.write("  <select id='platformFilter' onchange='updateTable()'>\n")
-            f.write("    <option value='all'>Toutes les plateformes</option>\n")
-            f.write("    <option value='Spotify'>Spotify</option>\n")
-            f.write("    <option value='Deezer'>Deezer</option>\n")
-            f.write("    <option value='Apple Music'>Apple Music</option>\n")
-            f.write("    <option value='YouTube'>YouTube</option>\n")
-            f.write("    <option value='N/A'>N/A</option>\n")
-            f.write("  </select>\n")
-            f.write("  <label><input type='checkbox' id='hideDuplicates' onchange='updateTable()'> Masquer les doublons (Artiste/Titre)</label>\n")
-            f.write("  <button onclick='exportToCSV()' class='btn'>Exporter en CSV</button>\n")
-            f.write(f"  <span>&nbsp;&nbsp;<strong>Total :</strong> <span id='totalCount'>{len(all_tracks)}</span> pistes</span>\n")
-            f.write("</div>\n")
-            f.write("<table>\n<thead>\n<tr><th>Épisode</th><th>Artiste</th><th>Titre</th><th>Plateforme</th><th>Lien</th></tr>\n</thead>\n<tbody>\n")
-            for track in all_tracks:
-                link_html = f"<a href='{html.escape(track['lien'])}' class='btn' target='_blank'>Écouter</a>" if track['lien'] else ""
-                f.write(f"<tr data-platform='{html.escape(track['plateforme'])}'><td>{html.escape(track['épisode'])}</td><td>{html.escape(track['artiste'])}</td><td>{html.escape(track['titre'])}</td><td>{html.escape(track['plateforme'])}</td><td>{link_html}</td></tr>\\n")
-            f.write("</tbody>\n</table>\n</body>\n</html>")
 
-        print(f"\\nSuccess! {len(all_tracks)} tracks saved to {csv_file} and {html_file}.")
+        table_rows = ""
+        for track in all_tracks:
+            link_html = f"<a href='{html.escape(track['lien'])}' class='btn' target='_blank'>Écouter</a>" if track['lien'] else ""
+            table_rows += f"<tr data-platform='{html.escape(track['plateforme'])}'><td>{html.escape(track['épisode'])}</td><td>{html.escape(track['artiste'])}</td><td>{html.escape(track['titre'])}</td><td>{html.escape(track['plateforme'])}</td><td>{link_html}</td></tr>\n"
+
+        html_content = f"""<!DOCTYPE html>
+<html lang='fr'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Laurent Garnier - [DEEP]Search Scraped Data</title>
+    <style>
+        body {{ font-family: system-ui, -apple-system, sans-serif; margin: 20px; background: #f4f4f9; color: #333; }}
+        h1 {{ color: #e2007a; border-bottom: 2px solid #e2007a; padding-bottom: 10px; }}
+        .controls {{ margin-bottom: 20px; display: flex; align-items: center; gap: 10px; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); flex-wrap: wrap; }}
+        select {{ padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; }}
+        table {{ border-collapse: collapse; width: 100%; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-top: 20px; }}
+        th, td {{ border: 1px solid #eee; padding: 12px; text-align: left; }}
+        th {{ background-color: #e2007a; color: white; text-transform: uppercase; font-size: 0.85em; letter-spacing: 0.05em; }}
+        tr:nth-child(even) {{ background-color: #fcfcfc; }}
+        tr:hover {{ background-color: #fff0f7; }}
+        .btn {{ display: inline-block; padding: 6px 16px; background: #e2007a; color: white; border-radius: 20px; text-decoration: none; font-size: 0.85em; font-weight: 600; transition: background 0.2s; cursor: pointer; border: none; }}
+        .btn:hover {{ background: #c10068; }}
+        .sort-btn {{ cursor: pointer; user-select: none; margin-left: 5px; opacity: 0.6; transition: opacity 0.2s; }}
+        .sort-btn:hover {{ opacity: 1; color: #fff; }}
+        .sort-btn.active {{ opacity: 1; font-weight: bold; }}
+        th {{ position: relative; }}
+    </style>
+    <script>
+        function updateTable() {{
+            const selectedPlatform = document.getElementById('platformFilter').value;
+            const hideDuplicates = document.getElementById('hideDuplicates').checked;
+            const tbody = document.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const seen = new Set();
+            let visibleCount = 0;
+
+            rows.forEach(row => {{
+                const platform = row.getAttribute('data-platform');
+                const artist = row.cells[1].innerText.trim().toLowerCase();
+                const title = row.cells[2].innerText.trim().toLowerCase();
+                const key = artist + '|' + title;
+
+                let show = (selectedPlatform === 'all' || platform === selectedPlatform);
+
+                if (show && hideDuplicates) {{
+                    if (seen.has(key)) {{
+                        show = false;
+                    }} else {{
+                        seen.add(key);
+                    }}
+                }}
+
+                if (show) {{
+                    row.style.display = '';
+                    visibleCount++;
+                }} else {{
+                    row.style.display = 'none';
+                }}
+            }});
+            document.getElementById('totalCount').innerText = visibleCount;
+        }}
+
+        function sortTable(columnIndex, direction) {{
+            const tbody = document.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+
+            // Update active states of sort buttons
+            document.querySelectorAll('.sort-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            const sortedRows = rows.sort((a, b) => {{
+                const aText = a.cells[columnIndex].innerText.trim();
+                const bText = b.cells[columnIndex].innerText.trim();
+
+                return direction === 'asc'
+                    ? aText.localeCompare(bText, 'fr', {{ sensitivity: 'base' }})
+                    : bText.localeCompare(aText, 'fr', {{ sensitivity: 'base' }});
+            }});
+
+            // Re-append sorted rows
+            sortedRows.forEach(row => tbody.appendChild(row));
+
+            // Re-apply filters and duplicate hiding after sorting
+            updateTable();
+        }}
+
+        function exportToCSV() {{
+            const rows = document.querySelectorAll('table tr');
+            let csv = [];
+            rows.forEach(row => {{
+                if (row.style.display !== 'none') {{
+                    const cols = Array.from(row.cells).map((cell, index) => {{
+                        let text = cell.innerText;
+                        if (index === 4) {{ // Link column
+                            const a = cell.querySelector('a');
+                            text = a ? a.href : '';
+                        }}
+                        return '"' + text.replace(/"/g, '""') + '"';
+                    }});
+                    csv.push(cols.join(','));
+                }}
+            }});
+            const csvString = csv.join('\\n');
+            const blob = new Blob([csvString], {{ type: 'text/csv;charset=utf-8;' }});
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'tracks_export.csv';
+            link.click();
+        }}
+    </script>
+</head>
+<body>
+    <h1>Laurent Garnier - [DEEP]Search</h1>
+    <div class='controls'>
+        <label for='platformFilter'>Filtrer par plateforme :</label>
+        <select id='platformFilter' onchange='updateTable()'>
+            <option value='all'>Toutes les plateformes</option>
+            <option value='Spotify'>Spotify</option>
+            <option value='Deezer'>Deezer</option>
+            <option value='Apple Music'>Apple Music</option>
+            <option value='YouTube'>YouTube</option>
+            <option value='N/A'>N/A</option>
+        </select>
+        <label><input type='checkbox' id='hideDuplicates' onchange='updateTable()'> Masquer les doublons (Artiste/Titre)</label>
+        <button onclick='exportToCSV()' class='btn'>Exporter en CSV</button>
+        <span>&nbsp;&nbsp;<strong>Total :</strong> <span id='totalCount'>{len(all_tracks)}</span> pistes</span>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>
+                    Épisode
+                    <span class="sort-btn" onclick="sortTable(0, 'asc')">▲</span>
+                    <span class="sort-btn" onclick="sortTable(0, 'desc')">▼</span>
+                </th>
+                <th>
+                    Artiste
+                    <span class="sort-btn" onclick="sortTable(1, 'asc')">▲</span>
+                    <span class="sort-btn" onclick="sortTable(1, 'desc')">▼</span>
+                </th>
+                <th>
+                    Titre
+                    <span class="sort-btn" onclick="sortTable(2, 'asc')">▲</span>
+                    <span class="sort-btn" onclick="sortTable(2, 'desc')">▼</span>
+                </th>
+                <th>Plateforme</th>
+                <th>Lien</th>
+            </tr>
+        </thead>
+        <tbody>
+            {table_rows}
+        </tbody>
+    </table>
+</body>
+</html>"""
+
+        with open(html_file, 'w', encoding='utf-8') as f:
+            f.write(html_content)
+
+        print(f"\nSuccess! {len(all_tracks)} tracks saved to {csv_file} and {html_file}.")
         await browser.close()
 
 if __name__ == "__main__":
