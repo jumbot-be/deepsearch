@@ -171,12 +171,12 @@ async def main():
             else:
                 yt_query = urllib.parse.quote(f"{track['artiste']} {track['titre']} youtube")
                 sc_query = urllib.parse.quote(f"{track['artiste']} {track['titre']} soundcloud")
-                art_query = urllib.parse.quote(f"{track['artiste']} official website")
+                bc_query = urllib.parse.quote(f"{track['artiste']} {track['titre']} bandcamp")
 
                 link_html = f"""<div class="search-container">
                     <a href="https://www.google.com/search?q={yt_query}" class="btn btn-search" target="_blank">YouTube</a>
                     <a href="https://www.google.com/search?q={sc_query}" class="btn btn-search" target="_blank">SoundCloud</a>
-                    <a href="https://www.google.com/search?q={art_query}" class="btn btn-search" target="_blank">Artiste</a>
+                    <a href="https://www.google.com/search?q={bc_query}" class="btn btn-search" target="_blank">Bandcamp</a>
                 </div>"""
 
             table_rows += f"<tr data-platform='{html.escape(track['plateforme'])}'><td>{html.escape(track['épisode'])}</td><td>{html.escape(track['artiste'])}</td><td>{html.escape(track['titre'])}</td><td>{html.escape(track['plateforme'])}</td><td>{link_html}</td></tr>\n"
