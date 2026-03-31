@@ -186,12 +186,17 @@ async def main():
         tr:hover {{ background-color: #fff0f7; }}
         .btn {{ display: inline-block; padding: 6px 16px; background: #e2007a; color: white; border-radius: 20px; text-decoration: none; font-size: 0.85em; font-weight: 600; transition: background 0.2s; cursor: pointer; border: none; }}
         .btn:hover {{ background: #c10068; }}
+        .sort-btn {{ cursor: pointer; user-select: none; margin-left: 5px; opacity: 0.6; transition: opacity 0.2s; }}
+        .sort-btn:hover {{ opacity: 1; color: #fff; }}
+        .sort-btn.active {{ opacity: 1; font-weight: bold; }}
+        th {{ position: relative; }}
     </style>
     <script>
         function updateTable() {{
             const selectedPlatform = document.getElementById('platformFilter').value;
             const hideDuplicates = document.getElementById('hideDuplicates').checked;
-            const rows = document.querySelectorAll('tbody tr');
+            const tbody = document.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
             const seen = new Set();
             let visibleCount = 0;
 
@@ -219,6 +224,30 @@ async def main():
                 }}
             }});
             document.getElementById('totalCount').innerText = visibleCount;
+        }}
+
+        function sortTable(columnIndex, direction) {{
+            const tbody = document.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+
+            // Update active states of sort buttons
+            document.querySelectorAll('.sort-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.classList.add('active');
+
+            const sortedRows = rows.sort((a, b) => {{
+                const aText = a.cells[columnIndex].innerText.trim();
+                const bText = b.cells[columnIndex].innerText.trim();
+
+                return direction === 'asc'
+                    ? aText.localeCompare(bText, 'fr', {{ sensitivity: 'base' }})
+                    : bText.localeCompare(aText, 'fr', {{ sensitivity: 'base' }});
+            }});
+
+            // Re-append sorted rows
+            sortedRows.forEach(row => tbody.appendChild(row));
+
+            // Re-apply filters and duplicate hiding after sorting
+            updateTable();
         }}
 
         function exportToCSV() {{
@@ -264,7 +293,25 @@ async def main():
     </div>
     <table>
         <thead>
-            <tr><th>Épisode</th><th>Artiste</th><th>Titre</th><th>Plateforme</th><th>Lien</th></tr>
+            <tr>
+                <th>
+                    Épisode
+                    <span class="sort-btn" onclick="sortTable(0, 'asc')">▲</span>
+                    <span class="sort-btn" onclick="sortTable(0, 'desc')">▼</span>
+                </th>
+                <th>
+                    Artiste
+                    <span class="sort-btn" onclick="sortTable(1, 'asc')">▲</span>
+                    <span class="sort-btn" onclick="sortTable(1, 'desc')">▼</span>
+                </th>
+                <th>
+                    Titre
+                    <span class="sort-btn" onclick="sortTable(2, 'asc')">▲</span>
+                    <span class="sort-btn" onclick="sortTable(2, 'desc')">▼</span>
+                </th>
+                <th>Plateforme</th>
+                <th>Lien</th>
+            </tr>
         </thead>
         <tbody>
             {table_rows}
