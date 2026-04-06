@@ -4,6 +4,7 @@ import os
 import re
 import html
 import urllib.parse
+import argparse
 from playwright.async_api import async_playwright
 
 async def accept_cookies(page):
@@ -48,7 +49,7 @@ async def get_episode_links(page):
                 episode_urls.add(full_url)
 
     print(f"Found {len(episode_urls)} episode links.")
-    return sorted(list(episode_urls))
+    return sorted(list(episode_urls), reverse=True)
 
 async def scrape_episode(page, url):
     """Scrapes track data from a single episode page."""
@@ -137,28 +138,67 @@ async def scrape_episode(page, url):
     return tracks_data
 
 async def main():
+    parser = argparse.ArgumentParser(description="Scraper pour le podcast Deep Search de Laurent Garnier.")
+    parser.add_argument("--last", action="store_true", help="Scraper uniquement le dernier épisode publié.")
+    parser.add_argument("--url", type=str, help="Scraper un épisode spécifique via son URL.")
+    args = parser.parse_args()
+
+    csv_file = 'scraped_data.csv'
+    all_tracks = []
+
+    # Load existing data if appending
+    if (args.last or args.url) and os.path.exists(csv_file):
+        print(f"Loading existing data from {csv_file}...")
+        with open(csv_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # Convert liens string back to dict
+                liens = {}
+                if row['liens']:
+                    for part in row['liens'].split("; "):
+                        if ": " in part:
+                            p, u = part.split(": ", 1)
+                            liens[p] = u
+                all_tracks.append({
+                    "épisode": row['épisode'],
+                    "artiste": row['artiste'],
+                    "titre": row['titre'],
+                    "liens": liens
+                })
+        print(f"Loaded {len(all_tracks)} existing tracks.")
+
     async with async_playwright() as p:
         browser = await p.chromium.launch()
         page = await browser.new_page()
 
-        episode_urls = await get_episode_links(page)
+        if args.url:
+            episode_urls = [args.url]
+        else:
+            episode_urls = await get_episode_links(page)
+            if args.last:
+                episode_urls = episode_urls[:1] # links are sorted by URL, we need to be careful
 
-        all_tracks = []
+        new_tracks = []
         for i, url in enumerate(episode_urls):
             print(f"[{i+1}/{len(episode_urls)}] ", end="")
             tracks = await scrape_episode(page, url)
-            all_tracks.extend(tracks)
+            new_tracks.extend(tracks)
+
+        all_tracks.extend(new_tracks)
 
         # Save to CSV
-        csv_file = 'scraped_data.csv'
         with open(csv_file, 'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=['épisode', 'artiste', 'titre', 'liens'])
             writer.writeheader()
             # Convert liens dict to string for CSV
             csv_tracks = []
             for t in all_tracks:
-                row = t.copy()
-                row['liens'] = "; ".join([f"{p}: {u}" for p, u in t['liens'].items()])
+                row = {
+                    "épisode": t['épisode'],
+                    "artiste": t['artiste'],
+                    "titre": t['titre'],
+                    "liens": "; ".join([f"{p}: {u}" for p, u in t['liens'].items()])
+                }
                 csv_tracks.append(row)
             writer.writerows(csv_tracks)
 
