@@ -8,6 +8,45 @@ import argparse
 from collections import OrderedDict
 from playwright.async_api import async_playwright
 
+def get_episode_sort_key(title):
+    """Generates a sortable key for an episode title based on date."""
+    months = {
+        'jan': '01', 'janv': '01',
+        'fév': '02', 'fev': '02',
+        'mar': '03',
+        'avr': '04',
+        'mai': '05',
+        'juin': '06',
+        'juil': '07',
+        'aoû': '08', 'aou': '08',
+        'sep': '09', 'sept': '09',
+        'oct': '10',
+        'nov': '11',
+        'dec': '12', 'déc': '12'
+    }
+
+    # Try to find year (4 digits) and month abbreviation
+    year_match = re.search(r'20\d{2}', title)
+    year = year_match.group(0) if year_match else "9999" # Default high for unknowns
+
+    month_val = "00"
+    title_lower = title.lower()
+    for m, val in months.items():
+        if m in title_lower:
+            month_val = val
+            break
+
+    # Handle "Hors Série" or special cases
+    if "hors série" in title_lower:
+        # Extract years from range like 66/76's or 2007/2016's
+        range_match = re.search(r'(\d+)/(\d+)', title)
+        if range_match:
+            # We use the start of the range as part of the sort key
+            return f"0000-{range_match.group(1).zfill(4)}"
+        return "0000-0000"
+
+    return f"{year}-{month_val}"
+
 async def accept_cookies(page):
     """Accepts cookies if the button is found."""
     try:
@@ -250,6 +289,7 @@ async def main():
         for track in all_tracks:
             platforms = list(track['liens'].keys())
             platform_str = " ".join(platforms) if platforms else "N/A"
+            episode_sort = get_episode_sort_key(track['épisode'])
 
             link_html = '<div class="search-container">'
             # Official buttons
@@ -267,7 +307,7 @@ async def main():
                 <a href="https://www.google.com/search?q={bc_query}" class="btn btn-search" target="_blank">Bandcamp 🔍</a>
             </div>"""
 
-            table_rows += f"<tr data-platforms='{html.escape(platform_str)}'><td>{html.escape(track['épisode'])}</td><td>{html.escape(track['artiste'])}</td><td>{html.escape(track['titre'])}</td><td>{html.escape(', '.join(platforms) or 'N/A')}</td><td>{link_html}</td></tr>\n"
+            table_rows += f"<tr data-platforms='{html.escape(platform_str)}'><td data-sort='{html.escape(episode_sort)}'>{html.escape(track['épisode'])}</td><td>{html.escape(track['artiste'])}</td><td>{html.escape(track['titre'])}</td><td>{html.escape(', '.join(platforms) or 'N/A')}</td><td>{link_html}</td></tr>\n"
 
         html_content = f"""<!DOCTYPE html>
 <html lang='fr'>
@@ -337,12 +377,15 @@ async def main():
             event.target.classList.add('active');
 
             const sortedRows = rows.sort((a, b) => {{
-                const aText = a.cells[columnIndex].innerText.trim();
-                const bText = b.cells[columnIndex].innerText.trim();
+                const aCell = a.cells[columnIndex];
+                const bCell = b.cells[columnIndex];
+
+                const aValue = aCell.getAttribute('data-sort') || aCell.innerText.trim();
+                const bValue = bCell.getAttribute('data-sort') || bCell.innerText.trim();
 
                 return direction === 'asc'
-                    ? aText.localeCompare(bText, 'fr', {{ sensitivity: 'base' }})
-                    : bText.localeCompare(aText, 'fr', {{ sensitivity: 'base' }});
+                    ? aValue.localeCompare(bValue, 'fr', {{ sensitivity: 'base' }})
+                    : bValue.localeCompare(aValue, 'fr', {{ sensitivity: 'base' }});
             }});
 
             // Re-append sorted rows
