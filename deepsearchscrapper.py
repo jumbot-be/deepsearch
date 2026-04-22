@@ -81,20 +81,19 @@ async def get_episode_links(page):
 
     links = await page.query_selector_all("a")
     episode_urls = []
+    seen_urls = set()
     for link in links:
         href = await link.get_attribute("href")
         if href and "/fip/podcasts/deep-search-par-laurent-garnier/" in href:
             full_url = f"https://www.radiofrance.fr{href}" if href.startswith("/") else href
-            if full_url.rstrip('/') != "https://www.radiofrance.fr/fip/podcasts/deep-search-par-laurent-garnier":
-                episode_urls.append(full_url)
+            full_url = full_url.rstrip('/')
+            if full_url != "https://www.radiofrance.fr/fip/podcasts/deep-search-par-laurent-garnier":
+                if full_url not in seen_urls:
+                    episode_urls.append(full_url)
+                    seen_urls.add(full_url)
 
-    # Radio France typically lists newest episodes first.
-    # We want to maintain this order.
-    # We use an OrderedDict to keep order while removing duplicates
-    unique_links = list(OrderedDict.fromkeys(episode_urls))
-
-    print(f"Found {len(unique_links)} episode links.")
-    return unique_links
+    print(f"Found {len(episode_urls)} episode links.")
+    return episode_urls # Return in DOM order (newest first)
 
 async def scrape_episode(page, url):
     """Scrapes track data from a single episode page."""
@@ -110,15 +109,8 @@ async def scrape_episode(page, url):
     episode_title = "Inconnu"
     try:
         h1 = await page.query_selector("h1")
-        if not h1:
-            # Fallback for some page structures
-            h1 = await page.query_selector(".PodcastEpisode-title")
-
         if h1:
             episode_title = (await h1.inner_text()).strip()
-            # Normalize title to match CSV
-            episode_title = episode_title.replace('\xa0', ' ')
-            print(f"  -> Episode title: {episode_title}")
     except:
         pass
 
@@ -161,12 +153,9 @@ async def scrape_episode(page, url):
 
     # Attempt 2: DOM scraping (fallback)
     print("  -> Falling back to DOM scraping...")
-    # Radio France often uses "section" with a specific class for the tracklist
-    # and "div" with "CardSide" or similar. Let's try to be more broad.
-    cards = await page.query_selector_all("article, [class*='Card'], [class*='Track']")
-    print(f"  -> Found {len(cards)} potential track elements.")
+    cards = await page.query_selector_all(".CardSide")
     for card in cards:
-        artist_elem = await card.query_selector(".title, [class*='title']")
+        artist_elem = await card.query_selector(".title")
         title_elem = await card.query_selector(".subtext")
 
         if artist_elem and title_elem:
@@ -206,21 +195,24 @@ async def main():
         print(f"Loading existing data from {csv_file}...")
         with open(csv_file, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
-            for row in reader:
-                # Convert liens string back to dict
-                liens = {}
-                if row['liens']:
-                    for part in row['liens'].split("; "):
-                        if ": " in part:
-                            p, u = part.split(": ", 1)
-                            liens[p] = u
-                all_tracks.append({
-                    "épisode": row['épisode'],
-                    "artiste": row['artiste'],
-                    "titre": row['titre'],
-                    "liens": liens
-                })
-        print(f"Loaded {len(all_tracks)} existing tracks.")
+            if 'liens' not in reader.fieldnames:
+                print("Warning: CSV format is outdated (missing 'liens'). Re-scraping all data.")
+            else:
+                for row in reader:
+                    # Convert liens string back to dict
+                    liens = {}
+                    if row['liens']:
+                        for part in row['liens'].split("; "):
+                            if ": " in part:
+                                p, u = part.split(": ", 1)
+                                liens[p] = u
+                    all_tracks.append({
+                        "épisode": row['épisode'],
+                        "artiste": row['artiste'],
+                        "titre": row['titre'],
+                        "liens": liens
+                    })
+                print(f"Loaded {len(all_tracks)} existing tracks.")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch()
@@ -231,8 +223,7 @@ async def main():
         else:
             episode_urls = await get_episode_links(page)
             if args.last:
-                # Newest episodes are first on the page
-                episode_urls = episode_urls[:1]
+                episode_urls = episode_urls[:1] # links are sorted by URL, we need to be careful
 
         new_tracks = []
         for i, url in enumerate(episode_urls):
@@ -240,31 +231,7 @@ async def main():
             tracks = await scrape_episode(page, url)
             new_tracks.extend(tracks)
 
-        # Dedup based on Episode Title if we are appending
-        if (args.last or args.url):
-            # Normalize and strip to be extra safe
-            existing_episodes = {t['épisode'].replace('\xa0', ' ').strip().lower() for t in all_tracks}
-
-            # Identify which new tracks are actually from new episodes
-            unique_new_tracks = []
-            seen_new_episodes = set()
-            for t in new_tracks:
-                normalized_new = t['épisode'].replace('\xa0', ' ').strip().lower()
-                if normalized_new not in existing_episodes:
-                    unique_new_tracks.append(t)
-                    seen_new_episodes.add(t['épisode'])
-
-            if unique_new_tracks:
-                print(f"Adding tracks from new episodes: {', '.join(seen_new_episodes)}")
-                all_tracks.extend(unique_new_tracks)
-            else:
-                scraped_title = new_tracks[0]['épisode'] if new_tracks else 'N/A'
-                print(f"No new episodes to add. Scraped episode title: '{scraped_title}'")
-        else:
-            all_tracks.extend(new_tracks)
-
-        # Sort all tracks by episode title (descending) to keep it somewhat organized
-        all_tracks.sort(key=lambda x: x['épisode'], reverse=True)
+        all_tracks.extend(new_tracks)
 
         # Save to CSV
         with open(csv_file, 'w', newline='', encoding='utf-8') as f:
@@ -284,6 +251,10 @@ async def main():
 
         # Save to HTML
         html_file = 'index.html'
+
+        # Collect unique episodes for the filter dropdown
+        episodes = sorted(list({t['épisode'] for t in all_tracks}), key=get_episode_sort_key, reverse=True)
+        episode_options = "\n".join([f"<option value='{html.escape(e)}'>{html.escape(e)}</option>" for e in episodes])
 
         table_rows = ""
         for track in all_tracks:
@@ -337,6 +308,7 @@ async def main():
     </style>
     <script>
         function updateTable() {{
+            const selectedEpisode = document.getElementById('episodeFilter').value;
             const hideDuplicates = document.getElementById('hideDuplicates').checked;
             const tbody = document.querySelector('tbody');
             const rows = Array.from(tbody.querySelectorAll('tr'));
@@ -344,11 +316,12 @@ async def main():
             let visibleCount = 0;
 
             rows.forEach(row => {{
+                const episode = row.cells[0].innerText.trim();
                 const artist = row.cells[1].innerText.trim().toLowerCase();
                 const title = row.cells[2].innerText.trim().toLowerCase();
                 const key = artist + '|' + title;
 
-                let show = true;
+                let show = (selectedEpisode === 'all' || episode === selectedEpisode);
 
                 if (show && hideDuplicates) {{
                     if (seen.has(key)) {{
@@ -423,6 +396,11 @@ async def main():
 <body>
     <h1>Laurent Garnier - [DEEP]Search</h1>
     <div class='controls'>
+        <label for='episodeFilter'>Filtrer par épisode :</label>
+        <select id='episodeFilter' onchange='updateTable()'>
+            <option value='all'>Tous les épisodes</option>
+            {episode_options}
+        </select>
         <label><input type='checkbox' id='hideDuplicates' onchange='updateTable()'> Masquer les doublons (Artiste/Titre)</label>
         <button onclick='exportToCSV()' class='btn'>Exporter en CSV</button>
         <span>&nbsp;&nbsp;<strong>Total :</strong> <span id='totalCount'>{len(all_tracks)}</span> pistes</span>
