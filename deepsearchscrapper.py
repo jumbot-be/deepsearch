@@ -4,7 +4,48 @@ import os
 import re
 import html
 import urllib.parse
+import argparse
+from collections import OrderedDict
 from playwright.async_api import async_playwright
+
+def get_episode_sort_key(title):
+    """Generates a sortable key for an episode title based on date."""
+    months = {
+        'jan': '01', 'janv': '01',
+        'fév': '02', 'fev': '02',
+        'mar': '03',
+        'avr': '04',
+        'mai': '05',
+        'juin': '06',
+        'juil': '07',
+        'aoû': '08', 'aou': '08',
+        'sep': '09', 'sept': '09',
+        'oct': '10',
+        'nov': '11',
+        'dec': '12', 'déc': '12'
+    }
+
+    # Try to find year (4 digits) and month abbreviation
+    year_match = re.search(r'20\d{2}', title)
+    year = year_match.group(0) if year_match else "9999" # Default high for unknowns
+
+    month_val = "00"
+    title_lower = title.lower()
+    for m, val in months.items():
+        if m in title_lower:
+            month_val = val
+            break
+
+    # Handle "Hors Série" or special cases
+    if "hors série" in title_lower:
+        # Extract years from range like 66/76's or 2007/2016's
+        range_match = re.search(r'(\d+)/(\d+)', title)
+        if range_match:
+            # We use the start of the range as part of the sort key
+            return f"0000-{range_match.group(1).zfill(4)}"
+        return "0000-0000"
+
+    return f"{year}-{month_val}"
 
 async def accept_cookies(page):
     """Accepts cookies if the button is found."""
@@ -39,16 +80,20 @@ async def get_episode_links(page):
         last_height = new_height
 
     links = await page.query_selector_all("a")
-    episode_urls = set()
+    episode_urls = []
+    seen_urls = set()
     for link in links:
         href = await link.get_attribute("href")
         if href and "/fip/podcasts/deep-search-par-laurent-garnier/" in href:
             full_url = f"https://www.radiofrance.fr{href}" if href.startswith("/") else href
-            if full_url.rstrip('/') != "https://www.radiofrance.fr/fip/podcasts/deep-search-par-laurent-garnier":
-                episode_urls.add(full_url)
+            full_url = full_url.rstrip('/')
+            if full_url != "https://www.radiofrance.fr/fip/podcasts/deep-search-par-laurent-garnier":
+                if full_url not in seen_urls:
+                    episode_urls.append(full_url)
+                    seen_urls.add(full_url)
 
     print(f"Found {len(episode_urls)} episode links.")
-    return sorted(list(episode_urls))
+    return episode_urls # Return in DOM order (newest first)
 
 async def scrape_episode(page, url):
     """Scrapes track data from a single episode page."""
@@ -90,18 +135,15 @@ async def scrape_episode(page, url):
                     deezer = re.search(r'deezerLink:"(.*?)"', block)
                     apple = re.search(r'itunesLink:"(.*?)"', block)
 
+                    links = {}
                     if spotify and spotify.group(1) != "void 0":
-                        tracks_data.append({"épisode": episode_title, "artiste": artist, "titre": title, "plateforme": "Spotify", "lien": spotify.group(1)})
-                        added_any = True
+                        links["Spotify"] = spotify.group(1)
                     if deezer and deezer.group(1) != "void 0":
-                        tracks_data.append({"épisode": episode_title, "artiste": artist, "titre": title, "plateforme": "Deezer", "lien": deezer.group(1)})
-                        added_any = True
+                        links["Deezer"] = deezer.group(1)
                     if apple and apple.group(1) != "void 0":
-                        tracks_data.append({"épisode": episode_title, "artiste": artist, "titre": title, "plateforme": "Apple Music", "lien": apple.group(1)})
-                        added_any = True
+                        links["Apple Music"] = apple.group(1)
 
-                    if not added_any:
-                        tracks_data.append({"épisode": episode_title, "artiste": artist, "titre": title, "plateforme": "N/A", "lien": ""})
+                    tracks_data.append({"épisode": episode_title, "artiste": artist, "titre": title, "liens": links})
 
             if tracks_data:
                 print(f"  -> Extracted {len(tracks_data)} track-platform entries from Svelte state.")
@@ -121,7 +163,7 @@ async def scrape_episode(page, url):
             title = (await title_elem.inner_text()).strip()
             if "[DEEP]Search" in artist: continue
 
-            added_any = False
+            track_links = {}
             links = await card.query_selector_all("a")
             for link in links:
                 href = await link.get_attribute("href")
@@ -133,53 +175,110 @@ async def scrape_episode(page, url):
                 elif "youtube.com" in href: platform = "YouTube"
 
                 if platform:
-                    tracks_data.append({"épisode": episode_title, "artiste": artist, "titre": title, "plateforme": platform, "lien": href})
-                    added_any = True
+                    track_links[platform] = href
 
-            if not added_any:
-                tracks_data.append({"épisode": episode_title, "artiste": artist, "titre": title, "plateforme": "N/A", "lien": ""})
+            tracks_data.append({"épisode": episode_title, "artiste": artist, "titre": title, "liens": track_links})
 
     return tracks_data
 
 async def main():
+    parser = argparse.ArgumentParser(description="Scraper pour le podcast Deep Search de Laurent Garnier.")
+    parser.add_argument("--last", action="store_true", help="Scraper uniquement le dernier épisode publié.")
+    parser.add_argument("--url", type=str, help="Scraper un épisode spécifique via son URL.")
+    args = parser.parse_args()
+
+    csv_file = 'scraped_data.csv'
+    all_tracks = []
+
+    # Load existing data if appending
+    if (args.last or args.url) and os.path.exists(csv_file):
+        print(f"Loading existing data from {csv_file}...")
+        with open(csv_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            if 'liens' not in reader.fieldnames:
+                print("Warning: CSV format is outdated (missing 'liens'). Re-scraping all data.")
+            else:
+                for row in reader:
+                    # Convert liens string back to dict
+                    liens = {}
+                    if row['liens']:
+                        for part in row['liens'].split("; "):
+                            if ": " in part:
+                                p, u = part.split(": ", 1)
+                                liens[p] = u
+                    all_tracks.append({
+                        "épisode": row['épisode'],
+                        "artiste": row['artiste'],
+                        "titre": row['titre'],
+                        "liens": liens
+                    })
+                print(f"Loaded {len(all_tracks)} existing tracks.")
+
     async with async_playwright() as p:
         browser = await p.chromium.launch()
         page = await browser.new_page()
 
-        episode_urls = await get_episode_links(page)
+        if args.url:
+            episode_urls = [args.url]
+        else:
+            episode_urls = await get_episode_links(page)
+            if args.last:
+                episode_urls = episode_urls[:1] # links are sorted by URL, we need to be careful
 
-        all_tracks = []
+        new_tracks = []
         for i, url in enumerate(episode_urls):
             print(f"[{i+1}/{len(episode_urls)}] ", end="")
             tracks = await scrape_episode(page, url)
-            all_tracks.extend(tracks)
+            new_tracks.extend(tracks)
+
+        all_tracks.extend(new_tracks)
 
         # Save to CSV
-        csv_file = 'scraped_data.csv'
         with open(csv_file, 'w', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=['épisode', 'artiste', 'titre', 'plateforme', 'lien'])
+            writer = csv.DictWriter(f, fieldnames=['épisode', 'artiste', 'titre', 'liens'])
             writer.writeheader()
-            writer.writerows(all_tracks)
+            # Convert liens dict to string for CSV
+            csv_tracks = []
+            for t in all_tracks:
+                row = {
+                    "épisode": t['épisode'],
+                    "artiste": t['artiste'],
+                    "titre": t['titre'],
+                    "liens": "; ".join([f"{p}: {u}" for p, u in t['liens'].items()])
+                }
+                csv_tracks.append(row)
+            writer.writerows(csv_tracks)
 
         # Save to HTML
         html_file = 'index.html'
 
+        # Collect unique episodes for the filter dropdown
+        episodes = sorted(list({t['épisode'] for t in all_tracks}), key=get_episode_sort_key, reverse=True)
+        episode_options = "\n".join([f"<option value='{html.escape(e)}'>{html.escape(e)}</option>" for e in episodes])
+
         table_rows = ""
         for track in all_tracks:
-            if track['lien']:
-                link_html = f"<a href='{html.escape(track['lien'])}' class='btn' target='_blank'>Écouter</a>"
-            else:
-                yt_query = urllib.parse.quote(f"{track['artiste']} {track['titre']} youtube")
-                sc_query = urllib.parse.quote(f"{track['artiste']} {track['titre']} soundcloud")
-                bc_query = urllib.parse.quote(f"{track['artiste']} {track['titre']} bandcamp")
+            platforms = list(track['liens'].keys())
+            platform_str = " ".join(platforms) if platforms else "N/A"
+            episode_sort = get_episode_sort_key(track['épisode'])
 
-                link_html = f"""<div class="search-container">
-                    <a href="https://www.google.com/search?q={yt_query}" class="btn btn-search" target="_blank">YouTube</a>
-                    <a href="https://www.google.com/search?q={sc_query}" class="btn btn-search" target="_blank">SoundCloud</a>
-                    <a href="https://www.google.com/search?q={bc_query}" class="btn btn-search" target="_blank">Bandcamp</a>
-                </div>"""
+            link_html = '<div class="search-container">'
+            # Official buttons
+            for platform, url in track['liens'].items():
+                link_html += f"<a href='{html.escape(url)}' class='btn' target='_blank'>{html.escape(platform)}</a>"
 
-            table_rows += f"<tr data-platform='{html.escape(track['plateforme'])}'><td>{html.escape(track['épisode'])}</td><td>{html.escape(track['artiste'])}</td><td>{html.escape(track['titre'])}</td><td>{html.escape(track['plateforme'])}</td><td>{link_html}</td></tr>\n"
+            # Search buttons (always present)
+            yt_query = urllib.parse.quote(f"{track['artiste']} {track['titre']} youtube")
+            sc_query = urllib.parse.quote(f"{track['artiste']} {track['titre']} soundcloud")
+            bc_query = urllib.parse.quote(f"{track['artiste']} {track['titre']} bandcamp")
+
+            link_html += f"""
+                <a href="https://www.google.com/search?q={yt_query}" class="btn btn-search" target="_blank">YouTube 🔍</a>
+                <a href="https://www.google.com/search?q={sc_query}" class="btn btn-search" target="_blank">SoundCloud 🔍</a>
+                <a href="https://www.google.com/search?q={bc_query}" class="btn btn-search" target="_blank">Bandcamp 🔍</a>
+            </div>"""
+
+            table_rows += f"<tr data-platforms='{html.escape(platform_str)}'><td data-sort='{html.escape(episode_sort)}'>{html.escape(track['épisode'])}</td><td>{html.escape(track['artiste'])}</td><td>{html.escape(track['titre'])}</td><td>{html.escape(', '.join(platforms) or 'N/A')}</td><td>{link_html}</td></tr>\n"
 
         html_content = f"""<!DOCTYPE html>
 <html lang='fr'>
@@ -209,7 +308,7 @@ async def main():
     </style>
     <script>
         function updateTable() {{
-            const selectedPlatform = document.getElementById('platformFilter').value;
+            const selectedEpisode = document.getElementById('episodeFilter').value;
             const hideDuplicates = document.getElementById('hideDuplicates').checked;
             const tbody = document.querySelector('tbody');
             const rows = Array.from(tbody.querySelectorAll('tr'));
@@ -217,12 +316,12 @@ async def main():
             let visibleCount = 0;
 
             rows.forEach(row => {{
-                const platform = row.getAttribute('data-platform');
+                const episode = row.cells[0].innerText.trim();
                 const artist = row.cells[1].innerText.trim().toLowerCase();
                 const title = row.cells[2].innerText.trim().toLowerCase();
                 const key = artist + '|' + title;
 
-                let show = (selectedPlatform === 'all' || platform === selectedPlatform);
+                let show = (selectedEpisode === 'all' || episode === selectedEpisode);
 
                 if (show && hideDuplicates) {{
                     if (seen.has(key)) {{
@@ -251,12 +350,15 @@ async def main():
             event.target.classList.add('active');
 
             const sortedRows = rows.sort((a, b) => {{
-                const aText = a.cells[columnIndex].innerText.trim();
-                const bText = b.cells[columnIndex].innerText.trim();
+                const aCell = a.cells[columnIndex];
+                const bCell = b.cells[columnIndex];
+
+                const aValue = aCell.getAttribute('data-sort') || aCell.innerText.trim();
+                const bValue = bCell.getAttribute('data-sort') || bCell.innerText.trim();
 
                 return direction === 'asc'
-                    ? aText.localeCompare(bText, 'fr', {{ sensitivity: 'base' }})
-                    : bText.localeCompare(aText, 'fr', {{ sensitivity: 'base' }});
+                    ? aValue.localeCompare(bValue, 'fr', {{ sensitivity: 'base' }})
+                    : bValue.localeCompare(aValue, 'fr', {{ sensitivity: 'base' }});
             }});
 
             // Re-append sorted rows
@@ -273,9 +375,9 @@ async def main():
                 if (row.style.display !== 'none') {{
                     const cols = Array.from(row.cells).map((cell, index) => {{
                         let text = cell.innerText;
-                        if (index === 4) {{ // Link column
-                            const a = cell.querySelector('a');
-                            text = a ? a.href : '';
+                        if (index === 4) {{ // Link column (Platforms & Searches)
+                            const links = Array.from(cell.querySelectorAll('a')).map(a => a.innerText + ": " + a.href);
+                            text = links.join("; ");
                         }}
                         return '"' + text.replace(/"/g, '""') + '"';
                     }});
@@ -294,14 +396,10 @@ async def main():
 <body>
     <h1>Laurent Garnier - [DEEP]Search</h1>
     <div class='controls'>
-        <label for='platformFilter'>Filtrer par plateforme :</label>
-        <select id='platformFilter' onchange='updateTable()'>
-            <option value='all'>Toutes les plateformes</option>
-            <option value='Spotify'>Spotify</option>
-            <option value='Deezer'>Deezer</option>
-            <option value='Apple Music'>Apple Music</option>
-            <option value='YouTube'>YouTube</option>
-            <option value='N/A'>N/A</option>
+        <label for='episodeFilter'>Filtrer par épisode :</label>
+        <select id='episodeFilter' onchange='updateTable()'>
+            <option value='all'>Tous les épisodes</option>
+            {episode_options}
         </select>
         <label><input type='checkbox' id='hideDuplicates' onchange='updateTable()'> Masquer les doublons (Artiste/Titre)</label>
         <button onclick='exportToCSV()' class='btn'>Exporter en CSV</button>
