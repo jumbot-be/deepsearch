@@ -23,32 +23,33 @@ async def get_episode_links(page):
     await page.goto("https://www.radiofrance.fr/fip/podcasts/deep-search-par-laurent-garnier")
     await accept_cookies(page)
 
-    # Scroll to the bottom to load all episodes
-    last_height = await page.evaluate("document.body.scrollHeight")
+    # Click "Voir plus d'épisodes" button until it disappears
     while True:
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        await page.wait_for_timeout(2000)
-        new_height = await page.evaluate("document.body.scrollHeight")
-        if new_height == last_height:
-            # Try one more time to be sure
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await page.wait_for_timeout(2000)
-            new_height = await page.evaluate("document.body.scrollHeight")
-            if new_height == last_height:
+        try:
+            button = await page.query_selector("button:has-text(\"Voir plus d'épisodes\")")
+            if button and await button.is_visible():
+                print("Clicking 'Voir plus d'épisodes'...")
+                await button.click()
+                await page.wait_for_timeout(2000)
+            else:
                 break
-        last_height = new_height
+        except Exception:
+            break
 
     links = await page.query_selector_all("a")
-    episode_urls = set()
+    episode_urls = []
+    seen_urls = set()
     for link in links:
         href = await link.get_attribute("href")
         if href and "/fip/podcasts/deep-search-par-laurent-garnier/" in href:
             full_url = f"https://www.radiofrance.fr{href}" if href.startswith("/") else href
             if full_url.rstrip('/') != "https://www.radiofrance.fr/fip/podcasts/deep-search-par-laurent-garnier":
-                episode_urls.add(full_url)
+                if full_url not in seen_urls:
+                    episode_urls.append(full_url)
+                    seen_urls.add(full_url)
 
     print(f"Found {len(episode_urls)} episode links.")
-    return sorted(list(episode_urls))
+    return episode_urls
 
 async def scrape_episode(page, url):
     """Scrapes track data from a single episode page."""
