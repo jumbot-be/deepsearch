@@ -2,6 +2,7 @@ import requests
 import time
 import sys
 import os
+import csv
 
 # --- CONFIGURATION ---
 # You need to create an app on https://developers.deezer.com/myapps
@@ -13,7 +14,7 @@ PLAYLIST_NAME = "Laurent Garnier - [DEEP]Search"
 
 def search_track(artist, title):
     """Search for a track on Deezer and return its ID."""
-    query = f'artist:\"{artist}\" track:\"{title}\"'
+    query = f'artist:"{artist}" track:"{title}"'
     url = f"https://api.deezer.com/search?q={query}"
     try:
         response = requests.get(url)
@@ -35,9 +36,9 @@ def create_playlist(name):
     try:
         response = requests.post(url, params=params)
         data = response.json()
-        if \"id\" in data:
+        if "id" in data:
             print(f"Created playlist '{name}' with ID: {data['id']}")
-            return data[\"id\"]
+            return data["id"]
         else:
             print(f"Failed to create playlist: {data}")
     except Exception as e:
@@ -46,16 +47,16 @@ def create_playlist(name):
 
 def add_tracks_to_playlist(playlist_id, track_ids):
     """Add a list of track IDs to the playlist."""
-    track_ids_str = \",\".join(map(str, track_ids))
+    track_ids_str = ",".join(map(str, track_ids))
     url = f"https://api.deezer.com/playlist/{playlist_id}/tracks"
     params = {
         "access_token": ACCESS_TOKEN,
         "songs": track_ids_str,
-        "request_method": \"POST\"
+        "request_method": "POST"
     }
     try:
         response = requests.post(url, params=params)
-        if response.text == \"true\":
+        if response.text == "true":
             return True
         else:
             print(f"Failed to add tracks: {response.json()}")
@@ -64,8 +65,8 @@ def add_tracks_to_playlist(playlist_id, track_ids):
     return False
 
 def main():
-    if ACCESS_TOKEN == \"YOUR_ACCESS_TOKEN\":
-        print(\"Please set your Deezer ACCESS_TOKEN in the script.\")
+    if ACCESS_TOKEN == "YOUR_ACCESS_TOKEN":
+        print("Please set your Deezer ACCESS_TOKEN in the script.")
         return
 
     csv_file = 'scraped_data.csv'
@@ -87,22 +88,22 @@ def main():
 
     deezer_ids = []
     for i, track in enumerate(tracks_to_import):
-        print(f"[{i+1}/{len(tracks_to_import)}] Searching: {track['artiste']} - {track['titre']}... \", end=\"\")
+        print(f"[{i+1}/{len(tracks_to_import)}] Searching: {track['artiste']} - {track['titre']}... ", end="")
         track_id = search_track(track['artiste'], track['titre'])
         if track_id:
-            print(f\"Found (ID: {track_id})\")
+            print(f"Found (ID: {track_id})")
             deezer_ids.append(track_id)
         else:
-            print(\"Not found\")
+            print("Not found")
         time.sleep(0.1)
 
     if not deezer_ids:
-        print(\"No tracks found on Deezer.\")
+        print("No tracks found on Deezer.")
         return
 
     playlist_id = create_playlist(PLAYLIST_NAME)
     if playlist_id:
-        print(f\"Adding {len(deezer_ids)} tracks to playlist...\")
+        print(f"Adding {len(deezer_ids)} tracks to playlist...")
         batch_size = 50
         success_count = 0
         for i in range(0, len(deezer_ids), batch_size):
@@ -110,7 +111,7 @@ def main():
             if add_tracks_to_playlist(playlist_id, batch):
                 success_count += len(batch)
 
-        print(f\"Successfully imported {success_count} tracks to Deezer!\")
+        print(f"Successfully imported {success_count} tracks to Deezer!")
 
-if __name__ == \"__main__\":
+if __name__ == "__main__":
     main()
