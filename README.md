@@ -40,7 +40,24 @@ Le script `deezer-import.py` permet de créer une playlist sur votre compte Deez
 python deezer-import.py
 ```
 
-### 3. Générer un HTML de test
+### 3. Éditeur de Playlist Deezer (Nouveau)
+
+Une interface web interactive pour gérer vos playlists Deezer, déplacer des morceaux entre elles, et importer facilement les données du scraper.
+
+1.  **Lancer l'éditeur :**
+
+    ```bash
+    python deezer_playlist_editor.py
+    ```
+
+2.  **Ouvrir dans votre navigateur :** Allez sur `http://127.0.0.1:5000`
+
+3.  **Utilisation :**
+    - Renseignez votre `ACCESS_TOKEN`.
+    - Utilisez les deux colonnes pour gérer vos playlists en parallèle.
+    - Utilisez la section "Full Import" pour envoyer tout le contenu du fichier `scraped_data.csv` vers une playlist en un clic.
+
+### 4. Générer un HTML de test
 
 Si vous souhaitez tester le rendu de la page HTML sans lancer un scrap complet, vous pouvez utiliser :
 
