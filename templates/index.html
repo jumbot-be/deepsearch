@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deezer Playlist Editor - Laurent Garnier [DEEP]Search</title>
+    <style>
+        :root { --primary: #e2007a; --bg: #f4f4f9; --text: #333; --white: #ffffff; --grey: #eee; }
+        body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 20px; }
+        h1 { color: var(--primary); text-align: center; }
+        .container { max-width: 1200px; margin: 0 auto; }
+
+        .config-box { background: var(--white); padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; display: flex; gap: 10px; align-items: center; }
+        input[type="text"] { flex: 1; padding: 10px; border: 1px solid #ccc; border-radius: 4px; }
+
+        .main-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .playlist-panel { background: var(--white); padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); min-height: 500px; display: flex; flex-direction: column; }
+
+        .panel-header { margin-bottom: 15px; border-bottom: 1px solid var(--grey); padding-bottom: 10px; }
+        .controls { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+
+        select { padding: 8px; border-radius: 4px; border: 1px solid #ccc; width: 100%; margin-bottom: 10px; }
+
+        .track-list { flex: 1; overflow-y: auto; max-height: 400px; border: 1px solid var(--grey); padding: 10px; border-radius: 4px; }
+        .track-item { display: flex; align-items: center; padding: 8px; border-bottom: 1px solid #f9f9f9; font-size: 0.9em; }
+        .track-item:hover { background: #fff0f7; }
+        .track-item input { margin-right: 10px; }
+        .track-info { flex: 1; }
+        .track-artist { font-weight: bold; }
+
+        .btn { padding: 8px 16px; background: var(--primary); color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: 600; transition: opacity 0.2s; font-size: 0.85em; }
+        .btn:hover { opacity: 0.8; }
+        .btn-secondary { background: #555; }
+        .btn-danger { background: #dc3545; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
+
+        .import-section { background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-top: 20px; text-align: center; }
+
+        .loading-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.7); display: none; align-items: center; justify-content: center; z-index: 1000; font-weight: bold; color: var(--primary); }
+    </style>
+</head>
+<body>
+    <div id="loading" class="loading-overlay">Opération en cours...</div>
+
+    <div class="container">
+        <h1>Deezer Playlist Editor</h1>
+
+        <div class="config-box">
+            <label for="accessToken">Deezer Access Token :</label>
+            <input type="text" id="accessToken" placeholder="Collez votre token ici..." />
+            <button class="btn" onclick="saveToken()">Sauvegarder</button>
+        </div>
+
+        <div class="main-grid">
+            <!-- Panneau Gauche -->
+            <div class="playlist-panel" id="panel-left">
+                <div class="panel-header">
+                    <h3>Playlist A</h3>
+                    <select id="select-left" onchange="loadPlaylistTracks('left')">
+                        <option value="">Sélectionner une playlist...</option>
+                    </select>
+                    <div class="controls">
+                        <button class="btn btn-secondary" onclick="refreshPlaylists()">Rafraîchir</button>
+                        <button class="btn" onclick="promptCreatePlaylist()">Nouvelle</button>
+                        <button class="btn btn-danger" onclick="deleteSelectedPlaylist('left')">Supprimer</button>
+                    </div>
+                </div>
+                <div class="track-list" id="tracks-left">
+                    <!-- Les morceaux s'afficheront ici -->
+                </div>
+                <div class="controls" style="margin-top: 15px;">
+                    <button class="btn" onclick="transferTracks('left', 'right', false)">Copier vers B &rarr;</button>
+                    <button class="btn btn-secondary" onclick="transferTracks('left', 'right', true)">Déplacer vers B &rarr;</button>
+                </div>
+            </div>
+
+            <!-- Panneau Droite -->
+            <div class="playlist-panel" id="panel-right">
+                <div class="panel-header">
+                    <h3>Playlist B</h3>
+                    <select id="select-right" onchange="loadPlaylistTracks('right')">
+                        <option value="">Sélectionner une playlist...</option>
+                    </select>
+                    <div class="controls">
+                        <button class="btn btn-secondary" onclick="refreshPlaylists()">Rafraîchir</button>
+                        <button class="btn" onclick="promptCreatePlaylist()">Nouvelle</button>
+                        <button class="btn btn-danger" onclick="deleteSelectedPlaylist('right')">Supprimer</button>
+                    </div>
+                </div>
+                <div class="track-list" id="tracks-right">
+                    <!-- Les morceaux s'afficheront ici -->
+                </div>
+                <div class="controls" style="margin-top: 15px;">
+                    <button class="btn" onclick="transferTracks('right', 'left', false)">&larr; Copier vers A</button>
+                    <button class="btn btn-secondary" onclick="transferTracks('right', 'left', true)">&larr; Déplacer vers A</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="import-section">
+            <h3>Importation "Full Import" depuis scraped_data.csv</h3>
+            <p>Importez tous les morceaux uniques du dernier scrap vers une playlist.</p>
+            <div style="display: flex; gap: 10px; justify-content: center; align-items: center;">
+                <select id="select-import" style="width: 300px; margin-bottom: 0;">
+                    <option value="">Choisir la destination...</option>
+                </select>
+                <button class="btn" onclick="fullImport()">Lancer l'importation complète</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let playlists = [];
+
+        window.onload = () => {
+            const savedToken = localStorage.getItem('deezer_token');
+            if (savedToken) {
+                document.getElementById('accessToken').value = savedToken;
+                refreshPlaylists();
+            }
+        };
+
+        function saveToken() {
+            const token = document.getElementById('accessToken').value.trim();
+            localStorage.setItem('deezer_token', token);
+            alert('Token sauvegardé !');
+            refreshPlaylists();
+        }
+
+        function getToken() {
+            return localStorage.getItem('deezer_token');
+        }
+
+        async function apiCall(endpoint, method = 'GET', body = null) {
+            const token = getToken();
+            if (!token) {
+                alert('Veuillez renseigner votre token Deezer.');
+                return null;
+            }
+
+            document.getElementById('loading').style.display = 'flex';
+            try {
+                const options = {
+                    method,
+                    headers: {
+                        'Authorization': token,
+                        'Content-Type': 'application/json'
+                    }
+                };
+                if (body) options.body = JSON.stringify(body);
+
+                const response = await fetch(endpoint, options);
+                const data = await response.json();
+                if (data.error) {
+                    alert('Erreur API : ' + (data.error.message || data.error));
+                    return null;
+                }
+                return data;
+            } catch (e) {
+                alert('Erreur réseau : ' + e.message);
+                return null;
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        async function refreshPlaylists() {
+            const data = await apiCall('/api/playlists');
+            if (data) {
+                playlists = data;
+                updateDropdowns();
+            }
+        }
+
+        function updateDropdowns() {
+            const dropdowns = ['select-left', 'select-right', 'select-import'];
+            dropdowns.forEach(id => {
+                const el = document.getElementById(id);
+                const currentVal = el.value;
+                el.innerHTML = '<option value="">Sélectionner une playlist...</option>';
+                playlists.forEach(pl => {
+                    const opt = document.createElement('option');
+                    opt.value = pl.id;
+                    opt.textContent = pl.title + ' (' + pl.nb_tracks + ' titres)';
+                    el.appendChild(opt);
+                });
+                el.value = currentVal;
+            });
+        }
+
+        async function loadPlaylistTracks(side) {
+            const playlistId = document.getElementById('select-' + side).value;
+            const container = document.getElementById('tracks-' + side);
+            container.innerHTML = '';
+
+            if (!playlistId) return;
+
+            const tracks = await apiCall(`/api/playlists/${playlistId}/tracks`);
+            if (tracks) {
+                tracks.forEach(track => {
+                    const item = document.createElement('div');
+                    item.className = 'track-item';
+                    item.innerHTML = `
+                        <input type="checkbox" data-id="${track.id}">
+                        <div class="track-info">
+                            <span class="track-artist">${track.artist.name}</span> -
+                            <span class="track-title">${track.title}</span>
+                        </div>
+                    `;
+                    container.appendChild(item);
+                });
+            }
+        }
+
+        async function promptCreatePlaylist() {
+            const title = prompt("Nom de la nouvelle playlist :");
+            if (title) {
+                const res = await apiCall('/api/playlists', 'POST', { title });
+                if (res) {
+                    await refreshPlaylists();
+                }
+            }
+        }
+
+        async function deleteSelectedPlaylist(side) {
+            const playlistId = document.getElementById('select-' + side).value;
+            if (!playlistId) return;
+            if (confirm("Supprimer définitivement cette playlist ?")) {
+                const res = await apiCall(`/api/playlists/${playlistId}`, 'DELETE');
+                if (res) {
+                    await refreshPlaylists();
+                    document.getElementById('tracks-' + side).innerHTML = '';
+                }
+            }
+        }
+
+        async function transferTracks(fromSide, toSide, isMove) {
+            const fromId = document.getElementById('select-' + fromSide).value;
+            const toId = document.getElementById('select-' + toSide).value;
+
+            if (!fromId || !toId) {
+                alert("Sélectionnez deux playlists.");
+                return;
+            }
+
+            const checked = Array.from(document.querySelectorAll(`#tracks-${fromSide} input:checked`))
+                                 .map(i => i.getAttribute('data-id'));
+
+            if (checked.length === 0) {
+                alert("Sélectionnez au moins un morceau.");
+                return;
+            }
+
+            // 1. Add to target
+            const addRes = await apiCall(`/api/playlists/${toId}/tracks`, 'POST', { track_ids: checked });
+            if (addRes && isMove) {
+                // 2. Remove from source if move
+                await apiCall(`/api/playlists/${fromId}/tracks`, 'DELETE', { track_ids: checked });
+            }
+
+            await loadPlaylistTracks(fromSide);
+            await loadPlaylistTracks(toSide);
+            await refreshPlaylists();
+        }
+
+        async function fullImport() {
+            const playlistId = document.getElementById('select-import').value;
+            if (!playlistId) {
+                alert("Sélectionnez une playlist de destination.");
+                return;
+            }
+
+            if (confirm("Lancer l'importation de tous les morceaux du CSV ? Cela peut prendre quelques minutes.")) {
+                const res = await apiCall('/api/import-csv', 'POST', { playlist_id: playlistId });
+                if (res && res.success) {
+                    alert(`Importation réussie : ${res.count} morceaux ajoutés.`);
+                    await refreshPlaylists();
+                }
+            }
+        }
+    </script>
+</body>
+</html>
