@@ -12,6 +12,20 @@ from playwright.async_api import async_playwright
 CSV_FILE = 'scraped_data.csv'
 HTML_FILE = 'index.html'
 
+NOISE_PATTERNS = [
+    "pour afficher ce contenu",
+    "accepter les cookies",
+    "ces cookies permettent",
+    "spéciales fip",
+    "réalisation",
+    "dj, compositeur",
+]
+
+def is_noise(artist, title):
+    """Detects non-track content captured from the page (cookie notices, credits, episode cards)."""
+    text = f"{artist} {title}".lower()
+    return any(pattern in text for pattern in NOISE_PATTERNS)
+
 def create_backup():
     """Creates a timestamped ZIP backup of the CSV file."""
     if not os.path.exists(CSV_FILE):
@@ -322,7 +336,7 @@ async def scrape_episode(page, url):
                         tracks_data.append({"épisode": episode_title, "artiste": artist, "titre": title, "plateforme": "Apple Music", "lien": apple.group(1)})
                         added_any = True
 
-                    if not added_any:
+                    if not added_any and not is_noise(artist, title):
                         tracks_data.append({"épisode": episode_title, "artiste": artist, "titre": title, "plateforme": "N/A", "lien": ""})
 
             if tracks_data:
@@ -333,7 +347,7 @@ async def scrape_episode(page, url):
 
     # Attempt 2: DOM scraping (fallback)
     print("  -> Falling back to DOM scraping...")
-    cards = await page.query_selector_all(".CardSide")
+    cards = await page.query_selector_all("ul.timeline .CardSide")
     for card in cards:
         artist_elem = await card.query_selector(".title")
         title_elem = await card.query_selector(".subtext")
@@ -342,6 +356,7 @@ async def scrape_episode(page, url):
             artist = (await artist_elem.inner_text()).strip()
             title = (await title_elem.inner_text()).strip()
             if "[DEEP]Search" in artist: continue
+            if is_noise(artist, title): continue
 
             added_any = False
             links = await card.query_selector_all("a")
