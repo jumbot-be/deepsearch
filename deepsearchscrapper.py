@@ -347,7 +347,7 @@ async def scrape_episode(page, url):
 
     # Attempt 2: DOM scraping (fallback)
     print("  -> Falling back to DOM scraping...")
-    cards = await page.query_selector_all(".CardSide")
+    cards = await page.query_selector_all("ul.timeline .CardSide")
     for card in cards:
         artist_elem = await card.query_selector(".title")
         title_elem = await card.query_selector(".subtext")
